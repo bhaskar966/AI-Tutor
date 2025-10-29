@@ -1,0 +1,96 @@
+"""Database interaction tools."""
+from google.adk.tools.tool_context import ToolContext
+import sys
+import os
+import uuid
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.db_manager import db_manager
+
+def check_user(user_id: str, tool_context: ToolContext) -> dict:
+    """Check if user exists and load their profile to context."""
+    user = db_manager.get_user(user_id)
+    
+    if user:
+        tool_context.state[f"user:{user_id}_name"] = user["name"]
+        tool_context.state["current_user_id"] = user_id
+        tool_context.state["authenticated"] = True
+        return {
+            "exists": True,
+            "user_id": user_id,
+            "name": user["name"],
+            "message": f"User {user['name']} found and loaded"
+        }
+    
+    return {
+        "exists": False,
+        "user_id": user_id,
+        "message": "User not found in database"
+    }
+
+def create_user(user_id: str, name: str, tool_context: ToolContext) -> dict:
+    """Create a new user account in the database."""
+    
+    # Auto-generate guest ID if needed
+    if user_id.lower() == "guest" or user_id.startswith("guest_"):
+        user_id = f"guest_{uuid.uuid4().hex[:6]}"
+    
+    result = db_manager.create_user(user_id, name)
+    
+    if result["success"]:
+        tool_context.state["current_user_id"] = user_id
+        tool_context.state[f"user:{user_id}_name"] = name
+        tool_context.state["authenticated"] = True
+        
+        # Mark as guest if applicable
+        if user_id.startswith("guest_"):
+            tool_context.state["is_guest"] = True
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "name": name,
+            "message": f"Account created successfully for {name} (ID: {user_id})"
+        }
+    
+    return {
+        "success": False,
+        "message": f"Failed to create account: {result.get('error', 'Unknown error')}"
+    }
+
+def log_conversation(agent_name: str, query: str, response: str, tool_context: ToolContext) -> dict:
+    """Log the conversation to database for persistence."""
+    user_id = tool_context.state.get("current_user_id", "anonymous")
+    session_id = getattr(tool_context, 'session_id', 'default_session')
+    
+    success = db_manager.log_interaction(
+        session_id=session_id,
+        user_id=user_id,
+        agent_name=agent_name,
+        query=query,
+        response=response
+    )
+    
+    return {
+        "logged": success,
+        "agent": agent_name,
+        "user_id": user_id
+    }
+
+
+
+def delete_guest_user(user_id: str, tool_context: ToolContext) -> dict:
+    """Delete a guest user from the database."""
+    if not user_id.startswith("guest_"):
+        return {"success": False, "message": "Can only delete guest users"}
+    
+    from utils.db_manager import db_manager, User
+    session = db_manager.get_session()
+    try:
+        session.query(User).filter_by(user_id=user_id).delete()
+        session.commit()
+        return {"success": True, "message": f"Guest user {user_id} deleted"}
+    except:
+        session.rollback()
+        return {"success": False}
+    finally:
+        session.close()

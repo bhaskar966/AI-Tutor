@@ -1,0 +1,10 @@
+# app_name: ai_tutor
+
+# agent:
+#   # Point to local agent module
+#   module: ai_tutor
+#   attribute: root_agent
+
+# session_service:
+#   type: database
+#   db_url: ${DATABASE_URI}
