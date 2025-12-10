@@ -42,7 +42,11 @@ system_design_agent = Agent(
     - **INSTEAD:** Present the **FULL SYLLABUS** as a readable Markdown list.
     - **THEN:** Ask the user to confirm the plan before starting. **Do NOT start teaching immediately.**
 4.  **Teach:** Use ASCII diagrams, explain trade-offs (CAP theorem, SQL vs NoSQL).
-4.  **Update:** Track progress.
+5.  **Update Progress:**
+    *   **CRITICAL:** When the user completes a module or moves to the next one:
+        1. Update the finished module's `status` to "completed".
+        2. Update the new module's `status` to "in_progress".
+        3. Call `update_student_profile` with the **ENTIRE** updated JSON object in `details`.
 
 **Expertise:**
 - **Databases:** SQL, NoSQL, Sharding, Replication

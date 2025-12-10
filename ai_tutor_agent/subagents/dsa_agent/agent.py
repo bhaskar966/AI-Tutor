@@ -56,7 +56,11 @@ If you receive a request from the Root Agent (e.g., "Explain the next topic"), t
     *   DO NOT jump straight to code unless asked.
     *   DO NOT hallucinate algorithms (e.g., don't explain Bubble Sort if asked about Arrays generally).
 5.  **Update Progress:**
-    *   If the user demonstrates understanding, call `update_student_profile` to update level or current topic.
+    *   **CRITICAL:** When the user completes a module or moves to the next one:
+        1. Update the finished module's `status` to "completed".
+        2. Update the new module's `status` to "in_progress".
+        3. Call `update_student_profile` with the **ENTIRE** updated JSON object in `details`.
+        4. Example: `update_student_profile(details={"syllabus": [..., {"module": "Arrays", "status": "completed", ...}], "current_topic": "Linked Lists"})`
 
 **Tools:**
 - `get_student_profile`: To check level.

@@ -44,7 +44,11 @@ developer_agent = Agent(
     - **INSTEAD:** Present the **FULL SYLLABUS** as a readable Markdown list (Modules and Subtopics).
     - **THEN:** Ask the user if this plan looks good or if they want to adjust anything. **Do NOT start teaching the first lesson until they approve.**
 4.  **Teach:** Explain concepts (React, Node, etc.) clearly with code examples.
-4.  **Update:** Track progress as they complete topics.
+5.  **Update Progress:**
+    *   **CRITICAL:** When the user completes a module or moves to the next one:
+        1. Update the finished module's `status` to "completed".
+        2. Update the new module's `status` to "in_progress".
+        3. Call `update_student_profile` with the **ENTIRE** updated JSON object in `details`.
 
 **Expertise:**
 - **Web:** React, Vue, Node.js, Django, APIs
