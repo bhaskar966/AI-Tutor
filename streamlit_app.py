@@ -286,36 +286,97 @@ def chat_page():
 
     # Display messages
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        role = msg["role"]
+        content = msg["content"]
+        sender_name = msg.get("sender_name")
+        
+        # Determine display name and avatar
+        if role == "user":
+            display_name = sender_name or st.session_state.username or "Student"
+            avatar = "👤"
+        else:
+            # Map internal agent names to friendly titles
+            agent_mapping = {
+                "root_agent": "AI Tutor",
+                "dsa_tutor": "DSA Tutor",
+                "dsa_solver": "DSA Solver",
+                "code_generator": "Code Generator",
+                "code_reviewer": "Code Reviewer",
+                "developer_tutor": "Developer Tutor",
+                "system_design_tutor": "System Design Tutor",
+                "search_agent": "Search Agent",
+                "account_agent": "Account Manager"
+            }
+            raw_name = sender_name or "AI Tutor"
+            display_name = agent_mapping.get(raw_name, raw_name.replace("_", " ").title())
+            avatar = "🤖"
+
+        with st.chat_message(name=display_name, avatar=avatar):
+            # Explicitly show name in bold to ensure visibility
+            st.write(f"**{display_name}**")
+            st.markdown(content)
 
     # Chat Input
     if prompt := st.chat_input("Ask me anything about DSA, System Design, or Coding..."):
         # Add user message
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
+        user_name = st.session_state.username or "Student"
+        st.session_state.messages.append({
+            "role": "user", 
+            "content": prompt, 
+            "sender_name": user_name
+        })
+        with st.chat_message(user_name, avatar="👤"):
+            st.write(f"**{user_name}**")
             st.markdown(prompt)
         
         # Generate response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+        # Use a generic name for the thinking state
+        with st.chat_message("AI Tutor", avatar="🤖"):
+             with st.spinner("Thinking..."):
                 try:
                     # Run agent via Runner
                     response_text = ""
+                    last_author = "root_agent" 
+                    
                     for event in runner.run(
                         user_id=st.session_state.user_id,
                         session_id=st.session_state.session_id,
                         new_message=types.Content(role="user", parts=[types.Part(text=prompt)])
                     ):
                         if event.content and event.content.parts:
+                            if event.author:
+                                last_author = event.author
+                                
                             for part in event.content.parts:
                                 if part.text:
                                     response_text += part.text
                     
                     if response_text:
+                        # Determine final display name for the new message
+                        agent_mapping = {
+                            "root_agent": "AI Tutor",
+                            "dsa_tutor": "DSA Tutor",
+                            "dsa_solver": "DSA Solver",
+                            "code_generator": "Code Generator",
+                            "code_reviewer": "Code Reviewer",
+                            "developer_tutor": "Developer Tutor",
+                            "system_design_tutor": "System Design Tutor",
+                            "search_agent": "Search Agent",
+                            "account_agent": "Account Manager"
+                        }
+                        final_display_name = agent_mapping.get(last_author, last_author.replace("_", " ").title())
+                        
+                        # Show the content effectively
+                        st.write(f"**{final_display_name}**")
                         st.markdown(response_text)
-                        st.session_state.messages.append({"role": "assistant", "content": response_text})
-                        # Rerun to update sidebar state immediately
+                        
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": response_text,
+                            "sender_name": last_author
+                        })
+                        
+                        # Force rerun to resolve any UI state naming issues
                         st.rerun()
                     else:
                         st.warning("No response received from agent.")
