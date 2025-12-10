@@ -60,7 +60,9 @@ def create_user(user_id: str, name: str, tool_context: ToolContext) -> dict:
 def log_conversation(agent_name: str, query: str, response: str, tool_context: ToolContext) -> dict:
     """Log the conversation to database for persistence."""
     user_id = tool_context.state.get("current_user_id", "anonymous")
-    session_id = getattr(tool_context, 'session_id', 'default_session')
+    session_id = getattr(tool_context, 'session_id', None)
+    if not session_id:
+        session_id = tool_context.state.get("session_id", "default_session")
     
     success = db_manager.log_interaction(
         session_id=session_id,
@@ -101,7 +103,11 @@ def get_user_history(tool_context: ToolContext) -> dict:
     if not user_id:
         return {"error": "No user logged in"}
     
-    history = db_manager.get_chat_history(user_id)
+    session_id = getattr(tool_context, 'session_id', None)
+    if not session_id:
+        session_id = tool_context.state.get("session_id")
+        
+    history = db_manager.get_chat_history(user_id, session_id=session_id)
     return {"history": history}
 
 def get_student_profile(subject: str, tool_context: ToolContext) -> dict:
@@ -125,4 +131,26 @@ def update_student_profile(subject: str, level: str, details: str, tool_context:
     return {
         "success": success,
         "message": f"Updated {subject} level to {level}" if success else "Failed to update"
+    }
+
+def update_learning_path_details(syllabus: str, tool_context: ToolContext) -> dict:
+    """
+    Update the syllabus/details for the CURRENT learning path (session).
+    Use this to save the specific plan for this chat session.
+    
+    Args:
+        syllabus: JSON string containing the 'syllabus' and 'current_topic'.
+                  Example: '{"syllabus": [...], "current_topic": "..."}'
+    """
+    session_id = getattr(tool_context, 'session_id', None)
+    if not session_id:
+        session_id = tool_context.state.get("session_id")
+        
+    if not session_id:
+         return {"success": False, "message": "No active session found"}
+
+    success = db_manager.update_learning_path_details(session_id, syllabus)
+    return {
+        "success": success,
+        "message": "Syllabus saved to Learning Path." if success else "Failed to save syllabus."
     }

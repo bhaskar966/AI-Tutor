@@ -32,6 +32,16 @@ class StudentProfile(Base):
     details = Column(Text, default='{}')  # JSON string for granular tracking
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class LearningPath(Base):
+    __tablename__ = 'learning_paths'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(100), nullable=False, index=True)
+    session_id = Column(String(100), nullable=False, unique=True)
+    subject = Column(String(50), nullable=False)
+    title = Column(String(200), nullable=False)
+    syllabus = Column(Text, default='{}')  # JSON string for path-specific syllabus
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class DBManager:
     """Singleton database manager for user and interaction storage."""
     
@@ -46,6 +56,18 @@ class DBManager:
             cls._instance.engine = create_engine(db_uri, echo=False)
             Base.metadata.create_all(cls._instance.engine)
             cls._instance.Session = sessionmaker(bind=cls._instance.engine)
+            
+            # --- Auto-Migration for 'syllabus' column ---
+            # SQLite doesn't support "IF NOT EXISTS" for ADD COLUMN nicely, so we try/except
+            from sqlalchemy import text
+            try:
+                with cls._instance.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE learning_paths ADD COLUMN syllabus TEXT DEFAULT '{}'"))
+            except Exception:
+                # Column likely exists
+                pass
+            # --------------------------------------------
+            
         return cls._instance
     
     def get_session(self) -> SQLSession:
@@ -77,6 +99,10 @@ class DBManager:
         finally:
             session.close()
     
+
+
+
+
     def log_interaction(self, session_id: str, user_id: str, agent_name: str, 
                        query: str, response: str) -> bool:
         """Log an interaction to the database."""
@@ -98,18 +124,22 @@ class DBManager:
         finally:
             session.close()
 
-    def get_chat_history(self, user_id: str, limit: int = 5) -> list:
-        """Get recent chat history for a user."""
+    def get_chat_history(self, user_id: str, session_id: str = None, limit: int = 20) -> list:
+        """Get recent chat history for a user, optionally filtered by session."""
         session = self.get_session()
         try:
-            interactions = session.query(Interaction).filter_by(user_id=user_id)\
-                .order_by(Interaction.timestamp.desc()).limit(limit).all()
+            query = session.query(Interaction).filter_by(user_id=user_id)
+            if session_id:
+                query = query.filter_by(session_id=session_id)
+            
+            interactions = query.order_by(Interaction.timestamp.desc()).limit(limit).all()
             
             # Return reversed to show chronological order
             return [{
+                "id": i.id,
                 "agent": i.agent_name,
                 "query": i.query,
-                "response": i.response,
+                "response": i.response if i.response else "Thinking...", # Handle pending
                 "timestamp": i.timestamp.isoformat()
             } for i in reversed(interactions)]
         finally:
@@ -164,6 +194,59 @@ class DBManager:
                     "level": p.level,
                     "details": p.details
                 } for p in profiles]
+        finally:
+            session.close()
+
+    def create_learning_path(self, user_id: str, session_id: str, subject: str, title: str) -> bool:
+        """Create a new learning path."""
+        session = self.get_session()
+        try:
+            path = LearningPath(
+                user_id=user_id,
+                session_id=session_id,
+                subject=subject.lower(), # Normalize
+                title=title
+            )
+            session.add(path)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            print(f"Error creating learning path: {e}")
+            return False
+        finally:
+            session.close()
+
+    def update_learning_path_details(self, session_id: str, syllabus: str) -> bool:
+        """Update the syllabus for a specific learning path."""
+        session = self.get_session()
+        try:
+            path = session.query(LearningPath).filter_by(session_id=session_id).first()
+            if path:
+                path.syllabus = syllabus
+                session.commit()
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            print(f"Error updating path syllabus: {e}")
+            return False
+        finally:
+            session.close()
+
+    def get_learning_paths(self, user_id: str) -> list:
+        """Get all learning paths for a user."""
+        session = self.get_session()
+        try:
+            paths = session.query(LearningPath).filter_by(user_id=user_id).order_by(LearningPath.created_at.desc()).all()
+            return [{
+                "id": p.id,
+                "session_id": p.session_id,
+                "subject": p.subject,
+                "title": p.title,
+                "syllabus": p.syllabus,
+                "created_at": p.created_at.isoformat()
+            } for p in paths]
         finally:
             session.close()
 

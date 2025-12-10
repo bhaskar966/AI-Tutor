@@ -8,7 +8,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from ai_tutor_agent.subagents.search_agent.agent import search_agent
 from .tools import parse_documentation
 from ai_tutor_agent.utils.llm_config import retry_config
-from shared_tools.db_tools import get_student_profile, update_student_profile
+from shared_tools.db_tools import get_student_profile, update_student_profile, update_learning_path_details
+from shared_tools.path_tools import get_current_learning_path_context
 
 developer_agent = Agent(
     name="developer_agent",
@@ -20,14 +21,18 @@ developer_agent = Agent(
 **Goal:** Teach development concepts and guide the student through a personalized syllabus.
 
 **Workflow:**
-1.  **Check Profile:** Call `get_student_profile(user_id, subject="development")` to check progress.
-2.  **Assessment & Syllabus:**
-    - If level/experience is unknown: **ASK questions first**.
-    - **IMMEDIATELY** after they answer, **CREATE the syllabus**. Do not ask "what next".
-    - Use their answers to tailor the content.
+1.  **Check Context FIRST:**
+    - Call `get_current_learning_path_context()`.
+    - If found and syllabus exists, USE IT.
+    - If not found, call `get_student_profile` for legacy history.
+2.  **Assessment & Syllabus Creation (MANDATORY):**
+    - **Step 1: GENERATE JSON.** Create the syllabus structure internally.
+    - **Step 2: SAVE IT FIRST.** You **MUST** call `update_learning_path_details` with the new JSON **BEFORE** you show the plan to the user.
+    - Example Call: `update_learning_path_details(syllabus='{"syllabus": [...], "current_topic": "..."}')`
+    - **Step 3: SHOW IT.** After saving, output the plan as a Markdown list.
+    - **Note:** Do not ask for permission to save. Save it as a draft, *then* ask for feedback.
 
-3.  **Syllabus Structure:**
-    - If user asks to start learning, create a step-by-step syllabus in this EXACT JSON structure:
+3.  **Syllabus JSON Structure:**
       ```json
       {
         "syllabus": [
@@ -37,18 +42,10 @@ developer_agent = Agent(
         "current_topic": "React"
       }
       ```
-    - Call `update_student_profile(subject="development", details=YOUR_JSON_OBJECT, level="beginner/intermediate/advanced")`.
-      *   `details` MUST be the JSON object defined above. DO NOT put user bio/request text here.
-      *   `level` must be a simple string.
-    - **CRITICAL:** Do NOT output the raw JSON in your chat response.
-    - **INSTEAD:** Present the **FULL SYLLABUS** as a readable Markdown list (Modules and Subtopics).
-    - **THEN:** Ask the user if this plan looks good or if they want to adjust anything. **Do NOT start teaching the first lesson until they approve.**
+
 4.  **Teach:** Explain concepts (React, Node, etc.) clearly with code examples.
-5.  **Update Progress:**
-    *   **CRITICAL:** When the user completes a module or moves to the next one:
-        1. Update the finished module's `status` to "completed".
-        2. Update the new module's `status` to "in_progress".
-        3. Call `update_student_profile` with the **ENTIRE** updated JSON object in `details`.
+5.  **Tracking Progress:**
+    - When a module is done, you MUST call `update_learning_path_details` again with updated status.
 
 **Expertise:**
 - **Web:** React, Vue, Node.js, Django, APIs
@@ -60,6 +57,8 @@ Provide practical, working code examples and explain best practices.""",
         AgentTool(agent=search_agent),
         FunctionTool(parse_documentation),
         FunctionTool(get_student_profile),
-        FunctionTool(update_student_profile)
+        FunctionTool(update_student_profile),
+        FunctionTool(update_learning_path_details),
+        FunctionTool(get_current_learning_path_context)
     ]
 )

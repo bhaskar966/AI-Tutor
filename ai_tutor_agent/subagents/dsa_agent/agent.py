@@ -7,7 +7,8 @@ import os
 
 # Add project root to path for shared tools
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from shared_tools.db_tools import get_student_profile, update_student_profile
+from shared_tools.db_tools import get_student_profile, update_student_profile, update_learning_path_details
+from shared_tools.path_tools import get_current_learning_path_context
 from ai_tutor_agent.utils.llm_config import retry_config
 
 # --- DSA Tutor (Concepts & Roadmaps) ---
@@ -23,7 +24,10 @@ Teach Data Structures and Algorithms concepts effectively, adapting to the stude
 If you receive a request from the Root Agent (e.g., "Explain the next topic"), treat it as a direct user command to proceed with the course.
 
 **Workflow:**
-1.  **Check Profile:** Look for `[Context] User DSA Profile` in the message history first. ONLY call `get_student_profile(user_id, subject="dsa")` if this info is completely missing or you need to verify an update.
+1.  **Check Context (CRITICAL):**
+    - Call `get_current_learning_path_context()` to see if a syllabus already exists for this chat.
+    - If `found` is True and `syllabus_json` exists, USE IT.
+    - ONLY if not found, check `get_student_profile` for legacy/global level info.
 2.  **Assessment & Syllabus Creation (CRITICAL):**
     - If the user is NEW (no history/profile): **ASK 3 probing questions** to gauge level.
     - **IMMEDIATELY** after they answer, **PROCEED DIRECTLY** to creating the syllabus.
@@ -32,21 +36,11 @@ If you receive a request from the Root Agent (e.g., "Explain the next topic"), t
 
 3.  **Syllabus Management:**
     - **Check:** If `details` in profile contains a "syllabus", check "current_topic".
-    - **Create:** If user asking to learn/start course:
-        - Generate a step-by-step syllabus in this EXACT JSON structure:
-          ```json
-          {
-            "syllabus": [
-              {"module": "Arrays", "status": "completed", "subtopics": ["Basics", "Prefix Sum"]},
-              {"module": "Linked Lists", "status": "in_progress", "subtopics": ["Singly", "Doubly"]}
-            ],
-            "current_topic": "Linked Lists"
-          }
-          ```
-        - Call `update_student_profile(subject="dsa", details=YOUR_JSON_OBJECT, level="beginner/intermediate/advanced")`.
-        - **CRITICAL:** Do NOT output the raw JSON in your chat response.
-        - **INSTEAD:** Present the **FULL SYLLABUS** as a readable Markdown list.
-        - **THEN:** Ask the user to confirm the plan. **Do NOT start teaching until they approve.**
+    - **Create/Update (MANDATORY):** If creating OR updating a plan:
+        - **Step 1: SAVE IT FIRST.** Call `update_learning_path_details` with the new JSON syllabus.
+        - **Step 2: SHOW IT.** Present the plan as a Markdown list.
+        - **Step 3: CONFIRM.** Ask the user if it looks good.
+        - **Example Call:** `update_learning_path_details(syllabus='{"syllabus": [...]}')`
     - **Continue:** If syllabus exists, use it to guide the next lesson.
 3.  **Personalize:**
     *   **Beginner:** Use analogies, simple language, and visual descriptions. Focus on "Why" and "How".
@@ -59,16 +53,18 @@ If you receive a request from the Root Agent (e.g., "Explain the next topic"), t
     *   **CRITICAL:** When the user completes a module or moves to the next one:
         1. Update the finished module's `status` to "completed".
         2. Update the new module's `status` to "in_progress".
-        3. Call `update_student_profile` with the **ENTIRE** updated JSON object in `details`.
-        4. Example: `update_student_profile(details={"syllabus": [..., {"module": "Arrays", "status": "completed", ...}], "current_topic": "Linked Lists"})`
+        3. Call `update_learning_path_details`.
 
 **Tools:**
 - `get_student_profile`: To check level.
-- `update_student_profile`: To record progress.
+- `update_student_profile`: To record level changes.
+- `update_learning_path_details`: **PRIMARY** tool for saving syllabus.
 """,
     tools=[
         FunctionTool(get_student_profile),
-        FunctionTool(update_student_profile)
+        FunctionTool(update_student_profile),
+        FunctionTool(update_learning_path_details),
+        FunctionTool(get_current_learning_path_context)
     ]
 )
 

@@ -11,6 +11,7 @@ from .subagents import (
     general_agent
 )
 from shared_tools.db_tools import log_conversation, get_user_history
+from shared_tools.path_tools import create_learning_path_tool, get_learning_paths_tool
 from .utils.llm_config import retry_config
 import os
 
@@ -45,6 +46,10 @@ root_agent = Agent(
 
 **Important - Delegation Rules:**
 - When calling a sub-agent, pass the USER'S ORIGINAL REQUEST or intent as clearly as possible.
+- **Learning Paths:**
+    - ALWAYS check `get_learning_paths_tool` first when a user asks to learn a subject.
+    - IF a path exists for that subject: Suggest switching to it (but allow creating a new one if they insist: "create_learning_path_tool").
+    - IF NO path exists: Call `create_learning_path_tool` to initialize the tracking.
 - **Ambiguity Rule:** If the user says "explain it again", "continue", or "tell me more" immediately after a Status/Progress update, assume they mean the **Current Topic/Subject**, NOT the status message itself. (e.g., If last msg was "You are on Arrays", and user says "explain it", pass "Explain Arrays").
 - DO NOT summarize the session state (e.g., "We covered X, now do Y") unless necessary. Just tell the agent what the user wants to do NOW.
 - If the user's request is vague (e.g., "start module 1"), YOU MUST check `get_user_history` first to understand the context.
@@ -62,6 +67,8 @@ root_agent = Agent(
         AgentTool(agent=system_design_agent),
         AgentTool(agent=general_agent),
         FunctionTool(log_conversation),
-        FunctionTool(get_user_history)
+        FunctionTool(get_user_history),
+        FunctionTool(create_learning_path_tool),
+        FunctionTool(get_learning_paths_tool)
     ]
 )
