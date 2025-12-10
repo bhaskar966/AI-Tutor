@@ -5,10 +5,12 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from shared_tools.db_tools import check_user, create_user
+from ai_tutor_agent.utils.llm_config import retry_config
 
 account_agent = Agent(
     name="account_agent",
-    model="gemini-2.0-flash",
+    model=os.getenv("AGENT_MODEL", "gemini-2.0-flash"),
+    generate_content_config=retry_config,
     description="Manages user authentication and account creation",
     instruction="""You manage user accounts and authentication.
 

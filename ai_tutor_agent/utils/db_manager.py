@@ -23,6 +23,15 @@ class Interaction(Base):
     response = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
+class StudentProfile(Base):
+    __tablename__ = 'student_profiles'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(100), nullable=False, index=True)
+    subject = Column(String(50), nullable=False)  # e.g., 'dsa', 'math'
+    level = Column(String(50), default='beginner')  # e.g., 'beginner', 'intermediate'
+    details = Column(Text, default='{}')  # JSON string for granular tracking
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class DBManager:
     """Singleton database manager for user and interaction storage."""
     
@@ -86,6 +95,75 @@ class DBManager:
         except:
             session.rollback()
             return False
+        finally:
+            session.close()
+
+    def get_chat_history(self, user_id: str, limit: int = 5) -> list:
+        """Get recent chat history for a user."""
+        session = self.get_session()
+        try:
+            interactions = session.query(Interaction).filter_by(user_id=user_id)\
+                .order_by(Interaction.timestamp.desc()).limit(limit).all()
+            
+            # Return reversed to show chronological order
+            return [{
+                "agent": i.agent_name,
+                "query": i.query,
+                "response": i.response,
+                "timestamp": i.timestamp.isoformat()
+            } for i in reversed(interactions)]
+        finally:
+            session.close()
+
+    def update_student_profile(self, user_id: str, subject: str, level: str, details: str = "{}") -> bool:
+        """Update or create a student profile for a subject."""
+        session = self.get_session()
+        try:
+            profile = session.query(StudentProfile).filter_by(
+                user_id=user_id, subject=subject
+            ).first()
+            
+            if profile:
+                profile.level = level
+                profile.details = details
+            else:
+                profile = StudentProfile(
+                    user_id=user_id,
+                    subject=subject,
+                    level=level,
+                    details=details
+                )
+                session.add(profile)
+            
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            print(f"Error updating profile: {e}")
+            return False
+        finally:
+            session.close()
+
+    def get_student_profile(self, user_id: str, subject: str = None) -> list | dict:
+        """Get student profile(s). If subject is None, returns all subjects."""
+        session = self.get_session()
+        try:
+            if subject:
+                profile = session.query(StudentProfile).filter_by(
+                    user_id=user_id, subject=subject
+                ).first()
+                return {
+                    "subject": profile.subject,
+                    "level": profile.level,
+                    "details": profile.details
+                } if profile else None
+            else:
+                profiles = session.query(StudentProfile).filter_by(user_id=user_id).all()
+                return [{
+                    "subject": p.subject,
+                    "level": p.level,
+                    "details": p.details
+                } for p in profiles]
         finally:
             session.close()
 

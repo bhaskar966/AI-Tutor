@@ -1,10 +1,13 @@
 """Search agent - wraps Google Search for use by other agents."""
 from google.adk.agents import Agent
 from google.adk.tools import google_search
+from ai_tutor_agent.utils.llm_config import retry_config
+import os
 
 search_agent = Agent(
     name="search_agent",
-    model="gemini-2.0-flash",
+    model=os.getenv("AGENT_MODEL", "gemini-2.0-flash"),
+    generate_content_config=retry_config,
     description="Performs Google searches and returns relevant, up-to-date information",
     instruction="""You are a search specialist agent.
 

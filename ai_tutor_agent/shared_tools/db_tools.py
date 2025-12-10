@@ -94,3 +94,35 @@ def delete_guest_user(user_id: str, tool_context: ToolContext) -> dict:
         return {"success": False}
     finally:
         session.close()
+
+def get_user_history(tool_context: ToolContext) -> dict:
+    """Get recent chat history for the current user."""
+    user_id = tool_context.state.get("current_user_id")
+    if not user_id:
+        return {"error": "No user logged in"}
+    
+    history = db_manager.get_chat_history(user_id)
+    return {"history": history}
+
+def get_student_profile(subject: str, tool_context: ToolContext) -> dict:
+    """Get the student's profile/level for a specific subject."""
+    user_id = tool_context.state.get("current_user_id")
+    if not user_id:
+        return {"error": "No user logged in"}
+    
+    profile = db_manager.get_student_profile(user_id, subject)
+    if profile:
+        return {"found": True, "profile": profile}
+    return {"found": False, "message": f"No profile found for {subject}"}
+
+def update_student_profile(subject: str, level: str, details: str, tool_context: ToolContext) -> dict:
+    """Update the student's profile/level for a specific subject."""
+    user_id = tool_context.state.get("current_user_id")
+    if not user_id:
+        return {"error": "No user logged in"}
+    
+    success = db_manager.update_student_profile(user_id, subject, level, details)
+    return {
+        "success": success,
+        "message": f"Updated {subject} level to {level}" if success else "Failed to update"
+    }

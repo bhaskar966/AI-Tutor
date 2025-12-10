@@ -4,11 +4,13 @@ from google.adk.tools.agent_tool import AgentTool
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from subagents.search_agent.agent import search_agent
+from ai_tutor_agent.subagents.search_agent.agent import search_agent
+from ai_tutor_agent.utils.llm_config import retry_config
 
 general_agent = Agent(
     name="general_agent",
-    model="gemini-2.0-flash",
+    model=os.getenv("AGENT_MODEL", "gemini-2.0-flash"),
+    generate_content_config=retry_config,
     description="Handles queries outside specialist domains using web search",
     instruction="""You handle topics that don't fit specialist domains.
 
