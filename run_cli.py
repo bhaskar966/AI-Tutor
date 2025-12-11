@@ -8,11 +8,9 @@ import logging
 import json
 from typing import Optional
 
-# Suppress warnings
 warnings.filterwarnings("ignore")
 logging.getLogger("google").setLevel(logging.ERROR)
 
-# Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
 agent_dir = os.path.join(script_dir, 'ai_tutor_agent')
 env_path = os.path.join(agent_dir, '.env')
@@ -20,16 +18,13 @@ env_path = os.path.join(agent_dir, '.env')
 # CRITICAL: Add PARENT of agent package to path (not agent_dir itself)
 sys.path.insert(0, script_dir)  # This allows "import ai_tutor_agent"
 
-# Load env
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=env_path)
 
-# Imports
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 
-# Import as package (supports relative imports in agent.py)
 from ai_tutor_agent.agent import root_agent
 
 
@@ -52,11 +47,75 @@ def clean_json_response(text: str) -> str:
     return text
 
 
+def cleanup_guest_user(guest_user_id: str):
+    """Clean up guest user data on exit."""
+    try:
+        from ai_tutor_agent.utils.db_manager import db_manager, User
+        db_session = db_manager.get_session()
+        try:
+            db_session.query(User).filter_by(user_id=guest_user_id).delete()
+            db_session.commit()
+            print("\n🗑️  Guest cleaned.")
+        except:
+            pass
+        finally:
+            db_session.close()
+    except:
+        pass
+
+
+def check_and_migrate_db(db_path: str):
+    """Ensure database schema is up to date."""
+    if not os.path.exists(db_path):
+        return
+        
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check for columns missing in older ADK versions but required by new ones
+        tables = cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'").fetchall()
+        if not tables:
+            conn.close()
+            return
+
+        columns = [info[1] for info in cursor.execute("PRAGMA table_info(events)").fetchall()]
+        
+        missing_columns = [
+            ("input_transcription", "TEXT"),
+            ("output_transcription", "TEXT")
+        ]
+        
+        for col_name, col_type in missing_columns:
+            if col_name not in columns:
+                print(f"🔧 Migrating DB: Adding missing column '{col_name}'...")
+                try:
+                    cursor.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_type}")
+                    conn.commit()
+                except Exception as e:
+                    print(f"⚠️ Migration warning: {e}")
+                    
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ DB Migration check failed: {e}")
+
+
 async def main():
     """Run AI Tutor CLI."""
     
-    db_url = os.getenv("DATABASE_URI", f"sqlite:///{os.path.join(script_dir, 'ai_tutor.db')}")
-    session_service = DatabaseSessionService(db_url=db_url)
+    db_path = os.path.join(script_dir, 'ai_tutor.db')
+    check_and_migrate_db(db_path)
+    
+    db_url = os.getenv("DATABASE_URI", f"sqlite:///{db_path}")
+    
+    # Ensure ADK uses async driver for SQLite
+    if db_url.startswith("sqlite:///"):
+        adk_db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+    else:
+        adk_db_url = db_url
+        
+    session_service = DatabaseSessionService(db_url=adk_db_url)
     
     runner = Runner(
         agent=root_agent,
@@ -88,19 +147,7 @@ async def main():
             
             if query.lower() in ['exit', 'quit', 'bye']:
                 if is_guest and guest_user_id:
-                    try:
-                        from ai_tutor_agent.utils.db_manager import db_manager, User
-                        db_session = db_manager.get_session()
-                        try:
-                            db_session.query(User).filter_by(user_id=guest_user_id).delete()
-                            db_session.commit()
-                            print("\n🗑️  Guest cleaned.")
-                        except:
-                            pass
-                        finally:
-                            db_session.close()
-                    except:
-                        pass
+                    cleanup_guest_user(guest_user_id)
                 
                 print("\n👋 Goodbye!\n")
                 break

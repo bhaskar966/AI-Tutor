@@ -1,10 +1,8 @@
 """Database interaction tools."""
 from google.adk.tools.tool_context import ToolContext
-import sys
-import os
 import uuid
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.db_manager import db_manager
+import os
+from ai_tutor_agent.utils.db_manager import db_manager
 
 def check_user(user_id: str, tool_context: ToolContext) -> dict:
     """Check if user exists and load their profile to context."""
@@ -30,7 +28,7 @@ def check_user(user_id: str, tool_context: ToolContext) -> dict:
 def create_user(user_id: str, name: str, tool_context: ToolContext) -> dict:
     """Create a new user account in the database."""
     
-    # Auto-generate guest ID if needed
+
     if user_id.lower() == "guest" or user_id.startswith("guest_"):
         user_id = f"guest_{uuid.uuid4().hex[:6]}"
     
@@ -41,7 +39,7 @@ def create_user(user_id: str, name: str, tool_context: ToolContext) -> dict:
         tool_context.state[f"user:{user_id}_name"] = name
         tool_context.state["authenticated"] = True
         
-        # Mark as guest if applicable
+
         if user_id.startswith("guest_"):
             tool_context.state["is_guest"] = True
         

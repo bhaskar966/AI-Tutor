@@ -13,7 +13,6 @@ from .subagents import (
 from shared_tools.db_tools import log_conversation, get_user_history
 from shared_tools.path_tools import create_learning_path_tool, get_learning_paths_tool
 from .utils.llm_config import retry_config
-import os
 
 root_agent = Agent(
     name="ai_tutor",

@@ -2,9 +2,6 @@ from google.adk.tools.tool_context import ToolContext
 import sys
 import os
 
-# Add project root to sys.path to ensure imports work
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 from ai_tutor_agent.utils.db_manager import db_manager
 
 def create_learning_path_tool(subject: str, title: str = None, tool_context: ToolContext = None) -> dict:
@@ -23,7 +20,7 @@ def create_learning_path_tool(subject: str, title: str = None, tool_context: Too
     user_id = tool_context.state.get("current_user_id")
     session_id = getattr(tool_context, 'session_id', None)
     
-    # Fallback: Check state for session_id (if injected by streamlit app)
+    # Check state for session_id (if injected by streamlit app)
     if not session_id:
         session_id = tool_context.state.get("session_id")
 
@@ -33,14 +30,12 @@ def create_learning_path_tool(subject: str, title: str = None, tool_context: Too
     if not title:
         title = subject.replace("_", " ").title()
 
-    # 1. Create the path record
     success = db_manager.create_learning_path(user_id, session_id, subject, title)
     
     if not success:
         return {"error": "Failed to create learning path record."}
         
-    # 2. Fetch existing profile to provide context
-    # This implements the "Inheritance" logic - user gets credit for past progress
+    # Implement "Inheritance" logic - user gets credit for past progress
     profile = db_manager.get_student_profile(user_id, subject)
     
     response = {

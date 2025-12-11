@@ -57,7 +57,7 @@ class DBManager:
             Base.metadata.create_all(cls._instance.engine)
             cls._instance.Session = sessionmaker(bind=cls._instance.engine)
             
-            # --- Auto-Migration for 'syllabus' column ---
+            # Auto-Migration for 'syllabus' column
             # SQLite doesn't support "IF NOT EXISTS" for ADD COLUMN nicely, so we try/except
             from sqlalchemy import text
             try:
@@ -66,7 +66,6 @@ class DBManager:
             except Exception:
                 # Column likely exists
                 pass
-            # --------------------------------------------
             
         return cls._instance
     
@@ -99,9 +98,6 @@ class DBManager:
         finally:
             session.close()
     
-
-
-
 
     def log_interaction(self, session_id: str, user_id: str, agent_name: str, 
                        query: str, response: str) -> bool:
@@ -250,5 +246,4 @@ class DBManager:
         finally:
             session.close()
 
-# Singleton instance
 db_manager = DBManager()
