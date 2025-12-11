@@ -64,48 +64,11 @@ def cleanup_guest_user(guest_user_id: str):
         pass
 
 
-def check_and_migrate_db(db_path: str):
-    """Ensure database schema is up to date."""
-    if not os.path.exists(db_path):
-        return
-        
-    import sqlite3
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Check for columns missing in older ADK versions but required by new ones
-        tables = cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'").fetchall()
-        if not tables:
-            conn.close()
-            return
-
-        columns = [info[1] for info in cursor.execute("PRAGMA table_info(events)").fetchall()]
-        
-        missing_columns = [
-            ("input_transcription", "TEXT"),
-            ("output_transcription", "TEXT")
-        ]
-        
-        for col_name, col_type in missing_columns:
-            if col_name not in columns:
-                print(f"🔧 Migrating DB: Adding missing column '{col_name}'...")
-                try:
-                    cursor.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_type}")
-                    conn.commit()
-                except Exception as e:
-                    print(f"⚠️ Migration warning: {e}")
-                    
-        conn.close()
-    except Exception as e:
-        print(f"⚠️ DB Migration check failed: {e}")
-
-
 async def main():
     """Run AI Tutor CLI."""
     
     db_path = os.path.join(script_dir, 'ai_tutor.db')
-    check_and_migrate_db(db_path)
+    # Auto-migration is now handled by DBManager instantiation
     
     db_url = os.getenv("DATABASE_URI", f"sqlite:///{db_path}")
     

@@ -67,7 +67,57 @@ class DBManager:
                 # Column likely exists
                 pass
             
+            cls._instance._check_and_migrate(db_uri)
+            
         return cls._instance
+
+    def _check_and_migrate(self, db_uri: str):
+        """Ensure database schema is up to date (specifically for SQLite)."""
+        if not db_uri.startswith("sqlite:///"):
+            return
+
+        # Extract path from URI
+        # Handle 'sqlite:///file.db' -> 'file.db' (relative)
+        # Handle 'sqlite:////abs/path/file.db' -> '/abs/path/file.db' (absolute)
+        db_path = db_uri.replace("sqlite:///", "")
+        
+        if not os.path.exists(db_path) and db_path != ':memory:':
+             pass
+
+        if not os.path.exists(db_path):
+             return
+
+        import sqlite3
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Check if 'events' table exists (it might not if create_all hasn't run yet, 
+            # or if it's a legacy DB that does have it)
+            tables = cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'").fetchall()
+            if not tables:
+                conn.close()
+                return
+
+            columns = [info[1] for info in cursor.execute("PRAGMA table_info(events)").fetchall()]
+            
+            missing_columns = [
+                ("input_transcription", "TEXT"),
+                ("output_transcription", "TEXT")
+            ]
+            
+            for col_name, col_type in missing_columns:
+                if col_name not in columns:
+                    print(f"🔧 Migrating DB: Adding missing column '{col_name}'...")
+                    try:
+                        cursor.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_type}")
+                        conn.commit()
+                    except Exception as e:
+                        print(f"⚠️ Migration warning: {e}")
+                        
+            conn.close()
+        except Exception as e:
+            print(f"⚠️ DB Migration check failed: {e}")
     
     def get_session(self) -> SQLSession:
         """Get a new database session."""
