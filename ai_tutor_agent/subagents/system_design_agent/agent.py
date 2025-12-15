@@ -35,6 +35,7 @@ system_design_agent = Agent(
         "current_topic": "Databases"
       }
       ```
+      **IMPORTANT:** `module` and `subtopics` keys are REQUIRED. `subtopics` cannot be empty.
     - Call `update_student_profile(subject="system_design", details=YOUR_JSON_OBJECT, level="beginner/intermediate/advanced")`.
       *   `details` MUST be the JSON object defined above. DO NOT put user bio/request text here.
       *   `level` must be a simple string.

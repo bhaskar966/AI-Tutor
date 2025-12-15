@@ -37,9 +37,20 @@ If you receive a request from the Root Agent (e.g., "Explain the next topic"), t
 3.  **Syllabus Management:**
     - **Check:** If `details` in profile contains a "syllabus", check "current_topic".
     - **Create/Update (MANDATORY):** If creating OR updating a plan:
-        - **Step 1: SAVE IT FIRST.** Call `update_learning_path_details` with the new JSON syllabus.
-        - **Step 2: SHOW IT.** Present the plan as a Markdown list.
-        - **Step 3: CONFIRM.** Ask the user if it looks good.
+        - **Step 1: GENERATE JSON.** Create the syllabus structure internally.
+        - **Step 2: SAVE IT FIRST.** Call `update_learning_path_details` with the new JSON syllabus.
+        - **Schema:**
+          ```json
+          {
+            "syllabus": [
+              {"module": "Module Name", "status": "completed", "subtopics": ["Topic 1", "Topic 2"]},
+              {"module": "Next Module", "status": "in_progress", "subtopics": ["Topic A"]}
+            ],
+            "current_topic": "Next Module"
+          }
+          ```
+        - **Step 3: SHOW IT.** Present the plan as a Markdown list.
+        - **Step 4: CONFIRM.** Ask the user if it looks good.
         - **Example Call:** `update_learning_path_details(syllabus='{"syllabus": [...]}')`
     - **Continue:** If syllabus exists, use it to guide the next lesson.
 3.  **Personalize:**

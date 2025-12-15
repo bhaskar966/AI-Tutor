@@ -42,6 +42,7 @@ developer_agent = Agent(
         "current_topic": "React"
       }
       ```
+      **IMPORTANT:** `module` and `subtopics` keys are REQUIRED. `subtopics` cannot be empty.
 
 4.  **Teach:** Explain concepts (React, Node, etc.) clearly with code examples.
 5.  **Tracking Progress:**
