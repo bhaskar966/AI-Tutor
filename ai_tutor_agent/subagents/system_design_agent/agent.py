@@ -21,8 +21,12 @@ system_design_agent = Agent(
 **Workflow:**
 1.  **Check Profile:** Call `get_student_profile(user_id, subject="system_design")` to check progress.
 2.  **Assessment & Syllabus:**
-    - If level is unknown: **ASK questions first** (e.g., "Experience with distributed systems?").
-    - **IMMEDIATELY** after they answer, **CREATE the syllabus**. Do not ask "what next".
+    - **Step 1: Check Level & History.**
+        - **Analyze Context:** Read recent messages to see if user has already shared experience/goals.
+        - **If Unknown AND Info Missing:** ASK 3 probing questions (e.g., "Experience with distributed systems?", "Have you used AWS/GCP?", "What are you trying to build?").
+        - **If Info Present:** Infer level and **PROCEED DIRECTLY** to creating the syllabus. DO NOT ask questions again.
+    - **Step 2: Generate Structure.** Create the syllabus based on their answers.
+    - **Step 3: Save & Show.** Call `update_student_profile` then show the plan.
 
 3.  **Syllabus Structure:**
     - If user asks to start learning, create a syllabus in this EXACT JSON structure:
@@ -35,7 +39,10 @@ system_design_agent = Agent(
         "current_topic": "Databases"
       }
       ```
-      **IMPORTANT:** `module` and `subtopics` keys are REQUIRED. `subtopics` cannot be empty.
+      **IMPORTANT JSON RULES:**
+      - `module` MUST be descriptive (e.g., "Scalability Patterns", NOT "Module 1").
+      - `subtopics` MUST be a list of strings and CANNOT be empty.
+      - `status` MUST be "completed", "in_progress", or "pending".
     - Call `update_student_profile(subject="system_design", details=YOUR_JSON_OBJECT, level="beginner/intermediate/advanced")`.
       *   `details` MUST be the JSON object defined above. DO NOT put user bio/request text here.
       *   `level` must be a simple string.

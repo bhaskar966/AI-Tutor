@@ -25,8 +25,12 @@ developer_agent = Agent(
     - Call `get_current_learning_path_context()`.
     - If found and syllabus exists, USE IT.
     - If not found, call `get_student_profile` for legacy history.
-2.  **Assessment & Syllabus Creation (MANDATORY):**
-    - **Step 1: GENERATE JSON.** Create the syllabus structure internally.
+2.  **Assessment & Syllabus Creation (CRITICAL):**
+    - **Step 1: Check Level & History.**
+        - **Analyze Context:** Read recent messages. Has the user already mentioned their experience or goals?
+        - **If Level Unknown AND Info Missing:** ASK 3 probing questions (e.g., "Have you built any web apps before?", "Are you familiar with Async/Await?", "What is your goal?").
+        - **If Info Present:** Infer the level (Beginner/Intermediate/Advanced) and **PROCEED DIRECTLY** to creating the syllabus. DO NOT ask the questions again.
+    - **Step 2: GENERATE JSON.** Create the syllabus structure internally based on their level.
     - **Step 2: SAVE IT FIRST.** You **MUST** call `update_learning_path_details` with the new JSON **BEFORE** you show the plan to the user.
     - Example Call: `update_learning_path_details(syllabus='{"syllabus": [...], "current_topic": "..."}')`
     - **Step 3: SHOW IT.** After saving, output the plan as a Markdown list.
@@ -42,7 +46,10 @@ developer_agent = Agent(
         "current_topic": "React"
       }
       ```
-      **IMPORTANT:** `module` and `subtopics` keys are REQUIRED. `subtopics` cannot be empty.
+      **IMPORTANT:** `module` and `subtopics` keys are REQUIRED. 
+      - `subtopics` MUST be a list of strings and CANNOT be empty.
+      - `module` MUST be descriptive (e.g., "React Hooks", NOT "Module 1").
+      - `status` MUST be "completed", "in_progress", or "pending".
 
 4.  **Teach:** Explain concepts (React, Node, etc.) clearly with code examples.
 5.  **Tracking Progress:**

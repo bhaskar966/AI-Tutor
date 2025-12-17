@@ -51,19 +51,18 @@ def create_learning_path_tool(subject: str, title: str = None, tool_context: Too
         response["existing_profile"] = profile
     else:
         # Bootstrap a fresh profile so UI shows something immediately
+        # Bootstrap a fresh profile with EMPTY syllabus to trigger agent assessment
         initial_details = {
-            "current_topic": "Introduction",
-            "syllabus": [
-                {"module": "Getting Started", "status": "in_progress", "subtopics": ["Course Overview"]}
-            ]
+            "current_topic": None,
+            "syllabus": []  # Empty syllabus triggers "New User" logic in agents
         }
         import json
-        db_manager.update_student_profile(user_id, subject, "Beginner", json.dumps(initial_details))
+        db_manager.update_student_profile(user_id, subject, "Unknown", json.dumps(initial_details))
         
-        response["message"] += " Starting fresh for this subject."
+        response["message"] += " Starting fresh. Please assess the student's level."
         response["existing_profile"] = {
             "subject": subject,
-            "level": "Beginner",
+            "level": "Unknown",
             "details": json.dumps(initial_details)
         }
         
