@@ -7,7 +7,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from ai_tutor_agent.subagents.search_agent.agent import search_agent
 from ai_tutor_agent.utils.llm_config import retry_config
-from shared_tools.db_tools import get_student_profile, update_student_profile
+from ai_tutor_agent.utils.llm_config import retry_config
+from shared_tools.db_tools import get_student_profile, update_student_profile, update_learning_path_details
 
 system_design_agent = Agent(
     name="system_design_agent",
@@ -43,9 +44,8 @@ system_design_agent = Agent(
       - `module` MUST be descriptive (e.g., "Scalability Patterns", NOT "Module 1").
       - `subtopics` MUST be a list of strings and CANNOT be empty.
       - `status` MUST be "completed", "in_progress", or "pending".
-    - Call `update_student_profile(subject="system_design", details=YOUR_JSON_OBJECT, level="beginner/intermediate/advanced")`.
-      *   `details` MUST be the JSON object defined above. DO NOT put user bio/request text here.
-      *   `level` must be a simple string.
+    - Call `update_learning_path_details(syllabus=YOUR_JSON_OBJECT, level="beginner/intermediate/advanced")`.
+      *   `level` is MANDATORY to update the progress bar.
     - **CRITICAL:** Do NOT output the raw JSON in your chat response.
     - **INSTEAD:** Present the **FULL SYLLABUS** as a readable Markdown list.
     - **THEN:** Ask the user to confirm the plan before starting. **Do NOT start teaching immediately.**
@@ -64,7 +64,9 @@ system_design_agent = Agent(
 Start with high-level design, then drill into components.""",
     tools=[
         AgentTool(agent=search_agent),
+        AgentTool(agent=search_agent),
         FunctionTool(get_student_profile),
-        FunctionTool(update_student_profile)
+        FunctionTool(update_student_profile),
+        FunctionTool(update_learning_path_details)
     ]
 )

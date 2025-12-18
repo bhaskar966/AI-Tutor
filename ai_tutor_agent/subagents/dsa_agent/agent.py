@@ -39,7 +39,8 @@ If you receive a request from the Root Agent (e.g., "Explain the next topic"), t
     - **Check:** If `details` in profile contains a "syllabus", check "current_topic".
     - **Create/Update (MANDATORY):** If creating OR updating a plan:
         - **Step 1: GENERATE JSON.** Create the syllabus structure internally.
-        - **Step 2: SAVE IT FIRST.** Call `update_learning_path_details` with the new JSON syllabus.
+        - **Step 2: SAVE IT FIRST.** Call `update_learning_path_details` with the new JSON.
+        - **MANDATORY:** You MUST pass the `level` argument (e.g., "Beginner", "Advanced") inferred from the assessment.
         - **Schema:**
           ```json
           {
@@ -57,7 +58,8 @@ If you receive a request from the Root Agent (e.g., "Explain the next topic"), t
           - `status`: strictly "completed", "in_progress", or "pending".
           - **Double-check** the structure before saving.
         - **Step 4: CONFIRM.** Ask the user if it looks good.
-        - **Example Call:** `update_learning_path_details(syllabus='{"syllabus": [...]}')`
+          ```
+        - **Example Call:** `update_learning_path_details(syllabus='{"syllabus": [...]}', level="Beginner")`
     - **Continue:** If syllabus exists, use it to guide the next lesson.
 3.  **Personalize:**
     *   **Beginner:** Use analogies, simple language, and visual descriptions. Focus on "Why" and "How".

@@ -131,7 +131,7 @@ def update_student_profile(subject: str, level: str, details: str, tool_context:
         "message": f"Updated {subject} level to {level}" if success else "Failed to update"
     }
 
-def update_learning_path_details(syllabus: str, tool_context: ToolContext) -> dict:
+def update_learning_path_details(syllabus: str, level: str = None, tool_context: ToolContext = None) -> dict:
     """
     Update the syllabus/details for the CURRENT learning path (session).
     Use this to save the specific plan for this chat session.
@@ -139,6 +139,8 @@ def update_learning_path_details(syllabus: str, tool_context: ToolContext) -> di
     Args:
         syllabus: JSON string containing the 'syllabus' and 'current_topic'.
                   Example: '{"syllabus": [...], "current_topic": "..."}'
+        level: Optional. The student's current level (e.g., "Beginner", "Intermediate").
+               If provided, strictly updates the student's global profile level for this subject.
     """
     session_id = getattr(tool_context, 'session_id', None)
     if not session_id:
@@ -147,8 +149,30 @@ def update_learning_path_details(syllabus: str, tool_context: ToolContext) -> di
     if not session_id:
          return {"success": False, "message": "No active session found"}
 
-    success = db_manager.update_learning_path_details(session_id, syllabus)
+    # 1. Update Syllabus
+    success_syllabus = db_manager.update_learning_path_details(session_id, syllabus)
+    
+    msg = "Syllabus saved." if success_syllabus else "Failed to save syllabus."
+
+    # 2. Update Level (if provided)
+    if level:
+        user_id = tool_context.state.get("current_user_id")
+        if user_id:
+            # We need the subject. Find path by session_id.
+            paths = db_manager.get_learning_paths(user_id)
+            current_path = next((p for p in paths if p['session_id'] == session_id), None)
+            
+            if current_path:
+                subject = current_path['subject']
+                success_level = db_manager.update_student_profile(user_id, subject, level)
+                if success_level:
+                    msg += f" Level updated to {level}."
+                else:
+                    msg += " Failed to update level."
+            else:
+                 msg += " Could not find subject to update level."
+    
     return {
-        "success": success,
-        "message": "Syllabus saved to Learning Path." if success else "Failed to save syllabus."
+        "success": success_syllabus,
+        "message": msg
     }

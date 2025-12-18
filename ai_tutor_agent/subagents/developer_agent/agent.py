@@ -32,7 +32,8 @@ developer_agent = Agent(
         - **If Info Present:** Infer the level (Beginner/Intermediate/Advanced) and **PROCEED DIRECTLY** to creating the syllabus. DO NOT ask the questions again.
     - **Step 2: GENERATE JSON.** Create the syllabus structure internally based on their level.
     - **Step 2: SAVE IT FIRST.** You **MUST** call `update_learning_path_details` with the new JSON **BEFORE** you show the plan to the user.
-    - Example Call: `update_learning_path_details(syllabus='{"syllabus": [...], "current_topic": "..."}')`
+    - **CRITICAL:** You MUST pass the `level` argument (e.g., "Beginner") to update the student's profile level.
+    - Example Call: `update_learning_path_details(syllabus='{"syllabus": [...], "current_topic": "..."}', level="Beginner")`
     - **Step 3: SHOW IT.** After saving, output the plan as a Markdown list.
     - **Note:** Do not ask for permission to save. Save it as a draft, *then* ask for feedback.
 
