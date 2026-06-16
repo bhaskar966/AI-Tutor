@@ -86,6 +86,7 @@ Respond strictly in JSON format:
 {
     "evaluation": "Correct! Good job because...",
     "is_correct": true,
+    "correct_answer": "The correct answer to the question (always include this, even if user was correct)",
     "status": "ongoing", // strictly "ongoing" or "complete"
     "next_question": { // Include ONLY if status is "ongoing"
         "question": "...",
