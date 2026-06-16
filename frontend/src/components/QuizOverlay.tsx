@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/store';
 import { Loader2, X, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
-
+ 
 interface Question {
   question: string;
   type: 'mcq' | 'short_answer';
   options?: string[];
   topic: string;
 }
-
+ 
 interface QuizState {
   status: 'loading' | 'active' | 'evaluating' | 'complete';
   currentQuestion?: Question;
@@ -24,20 +24,13 @@ interface QuizState {
   evaluationFeedback?: string;
   evaluationIsCorrect?: boolean;
 }
-
+ 
 export default function QuizOverlay() {
   const { user, activePath, quizActive, quizModule, quizPreloadedData, setQuizState, activeQuizMsgId, updateQuizTriggerMessage } = useAppStore();
   const [state, setState] = useState<QuizState>({ status: 'loading', history: [] });
   const [answer, setAnswer] = useState('');
-
+ 
   useEffect(() => {
-    if (!quizActive) {
-      // Reset state when overlay is closed so the next quiz starts fresh
-      setState({ status: 'loading', history: [] });
-      setAnswer('');
-      return;
-    }
-
     if (quizActive && state.status === 'loading') {
       if (quizPreloadedData) {
         setState({
@@ -50,7 +43,7 @@ export default function QuizOverlay() {
         fetch('/api/quiz/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: user.user_id, session_id: activePath, module_name: quizModule })
+          body: JSON.stringify({ user_id: user.user_id, session_id: activePath })
         })
         .then(res => res.json())
         .then(data => {
@@ -66,24 +59,26 @@ export default function QuizOverlay() {
         });
       }
     }
-  }, [quizActive, quizPreloadedData, activePath, user, state.status, setQuizState, quizModule]);
-
+  }, [quizActive, quizPreloadedData, activePath, user, state.status, setQuizState]);
+ 
   if (!quizActive) return null;
-
+ 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!answer.trim() || state.status !== 'active' || !state.currentQuestion) return;
-
+ 
     setState(prev => ({ ...prev, status: 'evaluating' }));
-
+ 
     const updatedHistory = [
       ...state.history,
       {
         question: state.currentQuestion.question,
-        user_answer: answer
+        user_answer: answer,
+        is_correct: null,
+        correct_answer: null
       }
     ];
-
+ 
     try {
       const res = await fetch('/api/quiz/answer', {
         method: 'POST',
@@ -97,12 +92,18 @@ export default function QuizOverlay() {
         })
       });
       const result = await res.json();
-
+ 
+      const enrichedHistory = updatedHistory.map((h, i) =>
+        i === updatedHistory.length - 1
+          ? { ...h, is_correct: result.is_correct, correct_answer: result.correct_answer }
+          : h
+      );
+ 
       setState(prev => ({
         ...prev,
         status: result.status === 'complete' ? 'complete' : 'active',
         currentQuestion: result.next_question,
-        history: updatedHistory,
+        history: enrichedHistory,
         finalReview: result.final_review,
         evaluationFeedback: result.evaluation,
         evaluationIsCorrect: result.is_correct
@@ -141,13 +142,13 @@ export default function QuizOverlay() {
       setState(prev => ({ ...prev, status: 'active' }));
     }
   };
-
+ 
   const handleClose = () => {
     // Quiz can only be closed after completion
     setQuizState(false, null);
     useAppStore.getState().setQuizRequired(false);
   };
-
+ 
   return (
     <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-md p-6 flex flex-col items-center justify-center animate-in fade-in duration-200">
       <div className="w-full max-w-3xl bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -168,7 +169,7 @@ export default function QuizOverlay() {
             </button>
           )}
         </div>
-
+ 
         {/* Body */}
         <div className="p-8 overflow-y-auto flex-1 custom-scrollbar relative bg-zinc-950">
           {state.status === 'loading' && (
@@ -177,14 +178,14 @@ export default function QuizOverlay() {
               <p className="text-zinc-400">Loading your personalized quiz...</p>
             </div>
           )}
-
+ 
           {state.evaluationFeedback && state.status !== 'complete' && (
             <div className={`mb-8 p-5 rounded-2xl flex gap-4 text-base border ${state.evaluationIsCorrect ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
               {state.evaluationIsCorrect ? <CheckCircle2 className="w-6 h-6 shrink-0" /> : <XCircle className="w-6 h-6 shrink-0" />}
               <p>{state.evaluationFeedback}</p>
             </div>
           )}
-
+ 
           {state.status !== 'loading' && state.status !== 'complete' && state.currentQuestion && (
             <div className="space-y-8">
               <div>
@@ -195,7 +196,7 @@ export default function QuizOverlay() {
                   {state.currentQuestion.question}
                 </h4>
               </div>
-
+ 
               {state.currentQuestion.type === 'mcq' && state.currentQuestion.options ? (
                 <div className="space-y-3">
                   {state.currentQuestion.options.map((opt, idx) => (
@@ -222,7 +223,7 @@ export default function QuizOverlay() {
               )}
             </div>
           )}
-
+ 
           {state.status === 'complete' && state.finalReview && (
             <div className="space-y-8 text-center py-10">
               <div className="w-24 h-24 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto border-2 border-indigo-500/20">
@@ -250,6 +251,23 @@ export default function QuizOverlay() {
                   </ul>
                 </div>
               )}
+              {/* Question-by-question review */}
+              <div className="text-left max-w-xl mx-auto w-full space-y-3">
+                <h4 className="text-zinc-300 font-semibold text-base uppercase tracking-widest mb-2">Question Review</h4>
+                {state.history.map((h, idx) => (
+                  <div key={idx} className={`p-4 rounded-2xl border-2 ${h.is_correct ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5'}`}>
+                    <p className="text-zinc-300 font-medium text-sm mb-2">Q{idx + 1}: {h.question}</p>
+                    <p className="text-sm">
+                      Your answer: <span className={h.is_correct ? 'text-emerald-400 font-medium' : 'text-rose-400 font-medium'}>{h.user_answer}</span>
+                      {h.is_correct ? <CheckCircle2 className="inline w-4 h-4 ml-1 text-emerald-400" /> : <XCircle className="inline w-4 h-4 ml-1 text-rose-400" />}
+                    </p>
+                    {!h.is_correct && h.correct_answer && (
+                      <p className="text-sm text-emerald-400 mt-1">✅ Correct answer: <span className="font-medium">{h.correct_answer}</span></p>
+                    )}
+                  </div>
+                ))}
+              </div>
+ 
               {state.finalReview.needs_remedial && (!state.finalReview.wrong_topics || state.finalReview.wrong_topics.length === 0) && (
                 <div className="bg-amber-500/10 border-2 border-amber-500/20 rounded-2xl p-6 text-left max-w-xl mx-auto">
                   <p className="text-sm font-bold text-amber-500 uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -263,7 +281,7 @@ export default function QuizOverlay() {
             </div>
           )}
         </div>
-
+ 
         {/* Footer */}
         <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex justify-end">
           {state.status === 'complete' ? (
