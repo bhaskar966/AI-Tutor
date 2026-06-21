@@ -141,6 +141,11 @@ def trigger_topic_quiz(topic_name: str, tool_context: ToolContext = None) -> dic
         session_id = tool_context.state.get("session_id")
         
     if session_id:
+        if db_manager.get_quiz_pending(session_id) is not None:
+            return {
+                "error": "A quiz is already currently pending. You cannot trigger another one."
+            }
+            
         paths = db_manager.get_learning_paths(tool_context.state.get("current_user_id"))
         current_path = next((p for p in paths if p['session_id'] == session_id), None)
         if current_path and current_path.get('syllabus'):

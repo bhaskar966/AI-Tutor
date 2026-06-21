@@ -43,6 +43,7 @@ interface AppState {
   setQuizState: (active: boolean, module: string | null, msgId?: string) => void;
   setQuizPreloadedData: (data: any) => void;
   setQuizRequired: (required: boolean) => void;
+  removeEmptyLastMessage: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -59,7 +60,14 @@ export const useAppStore = create<AppState>()(
       quizRequired: false,
 
       setUser: (user) => set({ user }),
-      setActivePath: (activePath) => set({ activePath }),
+      setActivePath: (activePath) => set({ 
+        activePath,
+        quizActive: false,
+        quizModule: null,
+        quizPreloadedData: null,
+        activeQuizMsgId: null,
+        quizRequired: false
+      }),
       setChatHistory: (chatHistory) => set({ chatHistory }),
       addChatMessage: (msg) => set((state) => ({ chatHistory: [...state.chatHistory, msg] })),
       updateLastMessage: (content) => set((state) => {
@@ -82,7 +90,18 @@ export const useAppStore = create<AppState>()(
       setModelMode: (modelMode) => set({ modelMode }),
       setQuizState: (quizActive, quizModule, msgId) => set({ quizActive, quizModule, activeQuizMsgId: msgId || null }),
       setQuizPreloadedData: (quizPreloadedData) => set({ quizPreloadedData }),
-      setQuizRequired: (quizRequired) => set({ quizRequired })
+      setQuizRequired: (quizRequired) => set({ quizRequired }),
+      removeEmptyLastMessage: () => set((state) => {
+        const history = [...state.chatHistory];
+        if (history.length > 0) {
+          const last = history[history.length - 1];
+          // If the last message is from the system or assistant and is completely empty, remove it
+          if (!last.response.trim() && !last.isQuizTrigger) {
+            history.pop();
+          }
+        }
+        return { chatHistory: history };
+      })
     }),
     {
       name: 'ai-tutor-storage',

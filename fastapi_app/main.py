@@ -181,9 +181,6 @@ async def quiz_start(req: QuizStartRequest):
     if not path or not path.get('syllabus'):
         raise HTTPException(status_code=400, detail="Syllabus not found")
     
-    # Set quiz as pending in DB (server-side enforcement)
-    if req.module_name:
-        db_manager.set_quiz_pending(req.session_id, req.module_name)
     
     question = generate_first_question(path['syllabus'], req.module_name)
     return question
@@ -326,8 +323,16 @@ async def quiz_answer(req: QuizAnswerRequest):
             print("Error updating syllabus status:", e)
             # Still clear quiz pending even on error to avoid permanent lock
             db_manager.clear_quiz_pending(req.session_id)
+    elif result.get("status") != "ongoing":
+        # Malformed LLM response, clear lock to prevent permanent freeze
+        db_manager.clear_quiz_pending(req.session_id)
             
     return result
+
+@app.post("/api/quiz/clear")
+async def quiz_clear(req: QuizStartRequest):
+    db_manager.clear_quiz_pending(req.session_id)
+    return {"success": True}
 
 # ======== CHAT ENDPOINTS ========
 
@@ -431,7 +436,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
                     first_incomplete_status = None
                     
                 enforcement_msg = ""
-                if first_incomplete_topic:
+                # Skip enforcement injection if a quiz is already pending or if this is a hidden system action
+                is_quiz_pending = db_manager.get_quiz_pending(session_id) is not None
+                if not hidden and not is_quiz_pending and first_incomplete_topic:
                     if first_incomplete_status == '[Pending]':
                         enforcement_msg = f"\n\n<orchestrator_routing_rules>\nCRITICAL RULE FOR AI_TUTOR ORCHESTRATOR ONLY: The next topic is '{first_incomplete_topic}' ([Pending]). You MUST teach this topic. Once you finish explaining it, ask if the user has questions. DO NOT trigger a quiz. Once they have no more questions, call the `mark_topic_taught` tool.\nIF YOU ARE A SUB-AGENT (e.g. visualization_agent, theory_agent), IGNORE THIS RULE.\n</orchestrator_routing_rules>"
                     elif first_incomplete_status == '[Taught]':
@@ -442,6 +449,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
             message = types.Content(role="user", parts=[types.Part(text=final_prompt)])
             full_response = ""
             current_agent = "ai_tutor"
+            marked_taught_topic = False
 
             try:
                 async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=message):
@@ -474,6 +482,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
                                 db_manager.set_quiz_pending(session_id, module_name)
                                 await websocket.send_json({"type": "status", "content": f"Preparing Mandatory Quiz for {module_name}..."})
                                 await websocket.send_json({"type": "trigger_quiz", "module": module_name})
+                            elif call.name == "mark_topic_taught":
+                                marked_taught_topic = True
+                                await websocket.send_json({"type": "status", "content": "Marking topic as completed..."})
                             else:
                                 await websocket.send_json({"type": "status", "content": f"Running {call.name}..."})
                     
@@ -483,13 +494,15 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
                                 continue # Skip to avoid Gemini SDK .text warning
                             try:
                                 if hasattr(part, 'text') and part.text:
+                                    # Only stream text from agents.
+                                    author = event.author
                                     full_response += part.text
                                     await websocket.send_json({
                                         "type": "chunk", 
                                         "content": part.text,
-                                        "author": event.author
+                                        "author": author
                                     })
-                                    current_agent = event.author
+                                    current_agent = author
                             except Exception:
                                 pass
             except Exception as e:
@@ -498,7 +511,118 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
             await websocket.send_json({"type": "done"})
             
             # Log final response
-            db_manager.log_interaction(session_id, user_id, current_agent, "", full_response)
+            if full_response:
+                db_manager.log_interaction(session_id, user_id, current_agent, "", full_response)
+
+            # FALLBACK: If this was a hidden quiz-completion message and the orchestrator
+            # produced no visible output (it reasoned internally but didn't route to a sub-agent),
+            # send a second, ultra-direct nudge so the next topic gets taught automatically.
+            if hidden and not full_response:
+                paths = db_manager.get_learning_paths(user_id)
+                current_path = next((p for p in paths if p['session_id'] == session_id), None)
+                next_topic = None
+                if current_path and current_path.get('syllabus'):
+                    try:
+                        syl_data = json.loads(current_path['syllabus'])
+                        syl_list = syl_data.get("syllabus", syl_data.get("modules", syl_data))
+                        for mod in (syl_list if isinstance(syl_list, list) else []):
+                            for t in mod.get('topics', []):
+                                t_title = t.get('title', t) if isinstance(t, dict) else t
+                                if isinstance(t, dict) and not t.get('completed') and not t.get('taught'):
+                                    next_topic = t_title
+                                    break
+                                elif isinstance(t, str) and t not in mod.get('completed_topics', []):
+                                    next_topic = t_title
+                                    break
+                            if next_topic:
+                                break
+                    except Exception:
+                        pass
+
+                nudge = f"SYSTEM: The quiz is done. {'Teach the next topic: ' + repr(next_topic) + '. ' if next_topic else ''}Transfer to theory_agent immediately. Do not output text first."
+                nudge_msg = types.Content(role="user", parts=[types.Part(text=nudge)])
+                nudge_response = ""
+                nudge_agent = "ai_tutor"
+                try:
+                    async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=nudge_msg):
+                        func_calls_n = event.get_function_calls() if hasattr(event, 'get_function_calls') else []
+                        func_calls_n = list(func_calls_n) if func_calls_n else []
+                        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                            for part in event.content.parts:
+                                if hasattr(part, 'function_call') and part.function_call:
+                                    if part.function_call not in func_calls_n:
+                                        func_calls_n.append(part.function_call)
+                        for call in func_calls_n:
+                            if call.name == "transfer_to_agent":
+                                agent_name = call.args.get("agent_name", "specialist") if hasattr(call.args, 'get') else "specialist"
+                                await websocket.send_json({"type": "status", "content": f"Consulting {agent_name.replace('_',' ').title()}..."})
+                        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                            for part in event.content.parts:
+                                if hasattr(part, 'function_call') and part.function_call:
+                                    continue
+                                try:
+                                    if hasattr(part, 'text') and part.text:
+                                        author = event.author
+                                        nudge_response += part.text
+                                        await websocket.send_json({"type": "chunk", "content": part.text, "author": author})
+                                        nudge_agent = author
+                                except Exception:
+                                    pass
+                except Exception as e:
+                    print("Nudge fallback error:", e)
+                if nudge_response:
+                    db_manager.log_interaction(session_id, user_id, nudge_agent, "", nudge_response)
+                await websocket.send_json({"type": "done"})
+
+            # FALLBACK 2: If mark_topic_taught was called but no transfer was initiated, nudge for quiz
+            elif marked_taught_topic and not full_response:
+                nudge = "SYSTEM: You just marked the topic as taught. IMMEDIATE ACTION REQUIRED: call transfer_to_agent to transfer to assessment_agent to trigger the quiz. Do not output any text."
+                nudge_msg = types.Content(role="user", parts=[types.Part(text=nudge)])
+                nudge_response = ""
+                nudge_agent = "ai_tutor"
+                try:
+                    async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=nudge_msg):
+                        func_calls_n = event.get_function_calls() if hasattr(event, 'get_function_calls') else []
+                        func_calls_n = list(func_calls_n) if func_calls_n else []
+                        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                            for part in event.content.parts:
+                                if hasattr(part, 'function_call') and part.function_call:
+                                    if part.function_call not in func_calls_n:
+                                        func_calls_n.append(part.function_call)
+                        for call in func_calls_n:
+                            if call.name == "transfer_to_agent":
+                                agent_name = call.args.get("agent_name", "specialist") if hasattr(call.args, 'get') else "specialist"
+                                await websocket.send_json({"type": "status", "content": f"Consulting {agent_name.replace('_',' ').title()}..."})
+                            elif call.name == "trigger_topic_quiz":
+                                module_name = "Unknown Topic"
+                                if hasattr(call, 'args'):
+                                    if hasattr(call.args, 'get'):
+                                        module_name = call.args.get("topic_name", call.args.get("module_name", "Unknown Topic"))
+                                    elif hasattr(call.args, 'fields'):
+                                        fields = call.args.fields
+                                        topic = fields.get("topic_name") or fields.get("module_name")
+                                        if topic:
+                                            module_name = getattr(topic, 'string_value', "Unknown Topic")
+                                db_manager.set_quiz_pending(session_id, module_name)
+                                await websocket.send_json({"type": "status", "content": f"Preparing Mandatory Quiz for {module_name}..."})
+                                await websocket.send_json({"type": "trigger_quiz", "module": module_name})
+                        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                            for part in event.content.parts:
+                                if hasattr(part, 'function_call') and part.function_call:
+                                    continue
+                                try:
+                                    if hasattr(part, 'text') and part.text:
+                                        author = event.author
+                                        nudge_response += part.text
+                                        await websocket.send_json({"type": "chunk", "content": part.text, "author": author})
+                                        nudge_agent = author
+                                except Exception:
+                                    pass
+                except Exception as e:
+                    print("Quiz nudge fallback error:", e)
+                if nudge_response:
+                    db_manager.log_interaction(session_id, user_id, nudge_agent, "", nudge_response)
+                await websocket.send_json({"type": "done"})
 
     except WebSocketDisconnect:
         pass

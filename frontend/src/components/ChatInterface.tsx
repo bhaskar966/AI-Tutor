@@ -175,6 +175,7 @@ export default function ChatInterface() {
         } else if (data.type === 'done') {
           setIsStreaming(false);
           setStreamingStatus(null);
+          useAppStore.getState().removeEmptyLastMessage();
         } else if (data.type === 'trigger_quiz') {
           const msgId = Date.now().toString() + '_quiz';
           const moduleName = data.module;
@@ -212,6 +213,16 @@ export default function ChatInterface() {
           // Server is enforcing quiz completion — lock chat
           useAppStore.getState().setQuizRequired(true);
         }
+      };
+
+      wsRef.current.onerror = () => {
+        setIsStreaming(false);
+        setStreamingStatus('Connection Error');
+      };
+      
+      wsRef.current.onclose = () => {
+        setIsStreaming(false);
+        setStreamingStatus(null);
       };
 
       // Check if a quiz is pending for this session (handles page refresh)
@@ -263,16 +274,20 @@ export default function ChatInterface() {
       useAppStore.getState().setQuizRequired(false);
       
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        let systemMsg = `[System Action]: The user has completed the mandatory quiz for module '${moduleName}' with score ${score}. The syllabus has been updated. DO NOT TRIGGER THE QUIZ AGAIN for this topic.`;
+        let systemMsg = `[System Action]: Quiz for '${moduleName}' completed. Score: ${score}. Quiz is now CLOSED — do NOT trigger it again. IMMEDIATE ACTION REQUIRED: do NOT output any text. Call transfer_to_agent now.`;
         if (wrongTopics.length > 0) {
-          systemMsg += ` Remedial topics were added for: ${wrongTopics.join(', ')}. Transfer to the theory_agent or coding_agent to teach these remedial topics.`;
+          systemMsg += ` Wrong topics: ${wrongTopics.join(', ')} — transfer to theory_agent to teach these remedial topics.`;
         } else {
-          systemMsg += ` The student passed. Proceed to teach the next pending topic in the syllabus by transferring to theory_agent or coding_agent.`;
+          systemMsg += ` Student passed — transfer to theory_agent to teach the next [Pending] topic in the syllabus.`;
         }
-        wsRef.current.send(JSON.stringify({
-          prompt: systemMsg,
-          hidden: true
-        }));
+        try {
+          wsRef.current.send(JSON.stringify({
+            prompt: systemMsg,
+            hidden: true
+          }));
+        } catch (e) {
+          console.error("Failed to send hidden completion message", e);
+        }
       }
     };
 
@@ -307,9 +322,20 @@ export default function ChatInterface() {
     setIsStreaming(true);
     setStreamingStatus('Analyzing...');
     
-    wsRef.current.send(JSON.stringify({
-      prompt: input
-    }));
+    try {
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          prompt: input
+        }));
+      } else {
+        setIsStreaming(false);
+        setStreamingStatus('Not connected');
+      }
+    } catch (e) {
+      console.error(e);
+      setIsStreaming(false);
+      setStreamingStatus('Send failed');
+    }
 
     setInput('');
   };
@@ -458,7 +484,12 @@ export default function ChatInterface() {
                   });
                   setIsStreaming(true);
                   setStreamingStatus('Analyzing...');
-                  wsRef.current.send(JSON.stringify({ prompt: startMsg }));
+                  try {
+                    wsRef.current.send(JSON.stringify({ prompt: startMsg }));
+                  } catch (e) {
+                    setIsStreaming(false);
+                    console.error(e);
+                  }
                 }
               }}
               disabled={isStreaming}

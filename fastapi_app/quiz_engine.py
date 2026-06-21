@@ -6,7 +6,8 @@ import re
 litellm.set_verbose = False
 
 def _get_litellm_model():
-    model = os.getenv("AGENT_MODEL", "gemini-2.5-flash")
+    from ai_tutor_agent.utils.llm_config import get_model_name
+    model = get_model_name()
     # LiteLLM needs the provider prefix for gemini
     if not model.startswith("ollama/") and "/" not in model:
         return f"gemini/{model}"
