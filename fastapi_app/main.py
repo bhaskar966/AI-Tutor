@@ -397,6 +397,57 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
             if not hidden:
                 db_manager.log_interaction(session_id, user_id, "user", prompt, "")
 
+            # ✅ SKIP/JUMP PREVENTION: Intercept before LLM if user is trying to jump ahead
+            if not hidden:
+                _skip_keywords = [
+                    "skip", "jump", "move to next", "next module", "next topic",
+                    "go to next", "move on", "proceed to", "start next", "let's move",
+                    "can we go to", "go ahead to", "advance to", "switch to next"
+                ]
+                prompt_lower = prompt.lower()
+                is_skip_request = any(kw in prompt_lower for kw in _skip_keywords)
+                
+                if is_skip_request:
+                    # Find first incomplete (not completed, not taught) topic
+                    paths = db_manager.get_learning_paths(user_id)
+                    current_path = next((p for p in paths if p['session_id'] == session_id), None)
+                    _first_pending = None
+                    if current_path and current_path.get('syllabus'):
+                        try:
+                            _syl = json.loads(current_path['syllabus'])
+                            _syl_list = _syl.get("syllabus", _syl.get("modules", _syl)) if isinstance(_syl, dict) else _syl
+                            for _mod in (_syl_list if isinstance(_syl_list, list) else []):
+                                for _t in _mod.get("topics", []):
+                                    if isinstance(_t, dict) and not _t.get("completed") and not _t.get("taught"):
+                                        _first_pending = _t.get("title", "the current topic")
+                                        break
+                                    elif isinstance(_t, str) and _t not in _mod.get("completed_topics", []):
+                                        _first_pending = _t
+                                        break
+                                if _first_pending:
+                                    break
+                        except Exception:
+                            pass
+                    
+                    if _first_pending:
+                        restriction_msg = (
+                            f"⚠️ **You are trying to move forward.**\n\n"
+                            f"To advance past **\"{_first_pending}\"**, you must first pass its mandatory assessment. "
+                            f"I am generating the quiz for you now. If you pass, the next topic will automatically unlock!"
+                        )
+                        await websocket.send_json({"type": "chunk", "content": restriction_msg, "author": "ai_tutor"})
+                        await websocket.send_json({"type": "done"})
+                        
+                        # Auto-trigger the quiz to let them "test out" of the topic
+                        db_manager.set_quiz_pending(session_id, _first_pending)
+                        await websocket.send_json({"type": "status", "content": f"Preparing Mandatory Quiz for {_first_pending}..."})
+                        await websocket.send_json({"type": "trigger_quiz", "module": _first_pending})
+                        
+                        db_manager.log_interaction(session_id, user_id, "ai_tutor", "", restriction_msg)
+                        continue
+
+
+
             # Always fetch latest path to ensure syllabus updates are reflected
             paths = db_manager.get_learning_paths(user_id)
             current_path = next((p for p in paths if p['session_id'] == session_id), None)
@@ -440,9 +491,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
                 is_quiz_pending = db_manager.get_quiz_pending(session_id) is not None
                 if not hidden and not is_quiz_pending and first_incomplete_topic:
                     if first_incomplete_status == '[Pending]':
-                        enforcement_msg = f"\n\n<orchestrator_routing_rules>\nCRITICAL RULE FOR AI_TUTOR ORCHESTRATOR ONLY: The next topic is '{first_incomplete_topic}' ([Pending]). You MUST teach this topic. Once you finish explaining it, ask if the user has questions. DO NOT trigger a quiz. Once they have no more questions, call the `mark_topic_taught` tool.\nIF YOU ARE A SUB-AGENT (e.g. visualization_agent, theory_agent), IGNORE THIS RULE.\n</orchestrator_routing_rules>"
+                        enforcement_msg = f"\n\n<system_status>\nCurrent topic: '{first_incomplete_topic}' ([Pending]).\nGoal: Teach this topic. If the user asks a question, just answer it naturally. DO NOT call `mark_topic_taught` unless the user explicitly confirms they fully understand the entire topic and have no more questions about it.\n</system_status>"
                     elif first_incomplete_status == '[Taught]':
-                        enforcement_msg = f"\n\n<orchestrator_routing_rules>\nCRITICAL RULE FOR AI_TUTOR ORCHESTRATOR ONLY: The topic '{first_incomplete_topic}' is currently marked as [Taught]. You MUST IMMEDIATELY transfer to `assessment_agent` to trigger the quiz. Do NOT ask for permission. Do NOT teach the next topic.\nIF YOU ARE A SUB-AGENT (e.g. visualization_agent), IGNORE THIS RULE ENTIRELY. DO NOT OUTPUT ANY TEXT ABOUT TRIGGERING A QUIZ.\n</orchestrator_routing_rules>"
+                        enforcement_msg = f"\n\n<system_status>\nCurrent topic: '{first_incomplete_topic}' ([Taught]).\nAction Required: The topic is marked as taught. You MUST immediately use the `transfer_to_agent` tool to transfer to the `assessment_agent` to start the mandatory quiz. Do not ask for permission.\n</system_status>"
                     
                 final_prompt = f"[System: Active Syllabus context:\n{syl_text}{enforcement_msg}]\n\n{prompt}"
 
@@ -496,17 +547,60 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str):
                                 if hasattr(part, 'text') and part.text:
                                     # Only stream text from agents.
                                     author = event.author
-                                    full_response += part.text
-                                    await websocket.send_json({
-                                        "type": "chunk", 
-                                        "content": part.text,
-                                        "author": author
-                                    })
+                                    part_text = part.text
+                                    
+                                    # JSON LEAKAGE PROTECTOR: If the string starts building a JSON object, buffer it, don't stream.
+                                    full_response += part_text
+                                    _stripped = full_response.strip()
+                                    
+                                    if _stripped.startswith("{") and '"name"' in _stripped:
+                                        # It is hallucinating a raw JSON tool call. Hold it back.
+                                        pass
+                                    else:
+                                        await websocket.send_json({
+                                            "type": "chunk", 
+                                            "content": part_text,
+                                            "author": author
+                                        })
                                     current_agent = author
                             except Exception:
                                 pass
             except Exception as e:
                 await websocket.send_json({"type": "chunk", "content": f"\n\nError: {str(e)}", "author": "system"})
+
+            # JSON SALVAGER: If we buffered a raw JSON object, extract its text and send it as one block now
+            if full_response.strip().startswith("{") and '"name"' in full_response:
+                import re
+                try:
+                    json_str = full_response.strip()
+                    last_brace = json_str.rfind('}')
+                    if last_brace != -1:
+                        json_str = json_str[:last_brace+1]
+                    data = json.loads(json_str)
+                    
+                    extracted = None
+                    text_keys = ("description", "content", "text", "response", "answer", "message")
+                    
+                    for k in text_keys:
+                        if isinstance(data.get(k), str) and data[k].strip():
+                            extracted = data[k].strip()
+                            break
+                            
+                    if not extracted:
+                        for nested_key in ("parameters", "args"):
+                            nested_obj = data.get(nested_key)
+                            if isinstance(nested_obj, dict):
+                                for k in text_keys:
+                                    if isinstance(nested_obj.get(k), str) and nested_obj[k].strip():
+                                        extracted = nested_obj[k].strip()
+                                        break
+                                if extracted: break
+                                
+                    if extracted:
+                        await websocket.send_json({"type": "chunk", "content": extracted, "author": current_agent})
+                        full_response = extracted  # Update for clean logging
+                except Exception:
+                    pass
 
             await websocket.send_json({"type": "done"})
             

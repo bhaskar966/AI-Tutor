@@ -30,6 +30,14 @@ export default function QuizOverlay() {
   const [state, setState] = useState<QuizState>({ status: 'loading', history: [] });
   const [answer, setAnswer] = useState('');
  
+  // ✅ FIX 1: Reset local state every time a new quiz is activated
+  useEffect(() => {
+    if (quizActive) {
+      setState({ status: 'loading', history: [] });
+      setAnswer('');
+    }
+  }, [quizActive, quizModule]);
+ 
   useEffect(() => {
     if (quizActive && state.status === 'loading') {
       if (quizPreloadedData) {

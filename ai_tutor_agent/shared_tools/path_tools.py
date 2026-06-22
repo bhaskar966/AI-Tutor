@@ -194,6 +194,35 @@ def mark_topic_taught(topic_name: str, tool_context: ToolContext = None) -> dict
         syllabus_data = json.loads(current_path['syllabus'])
         syllabus_list = syllabus_data.get("syllabus", syllabus_data.get("modules", syllabus_data)) if isinstance(syllabus_data, dict) else syllabus_data
         
+        # ✅ FIX 2: Sequential enforcement — find the first truly incomplete topic
+        # A topic is "incomplete" if it is not completed AND not taught
+        first_incomplete_title = None
+        for module in (syllabus_list if isinstance(syllabus_list, list) else []):
+            for t in module.get("topics", []):
+                if isinstance(t, dict):
+                    if not t.get("completed") and not t.get("taught"):
+                        first_incomplete_title = t.get("title", "")
+                        break
+                elif isinstance(t, str):
+                    if t not in module.get("completed_topics", []):
+                        first_incomplete_title = t
+                        break
+            if first_incomplete_title:
+                break
+        
+        # If the requested topic does NOT match the first incomplete topic, block it
+        if first_incomplete_title:
+            req_lower = topic_name.lower().strip()
+            first_lower = first_incomplete_title.lower().strip()
+            if req_lower not in first_lower and first_lower not in req_lower:
+                return {
+                    "error": (
+                        f"ENFORCEMENT VIOLATION: You attempted to mark '{topic_name}' as taught, "
+                        f"but the student has not yet completed the previous topic: '{first_incomplete_title}'. "
+                        f"You MUST teach '{first_incomplete_title}' first before moving to any other topic."
+                    )
+                }
+        
         found = False
         for module in syllabus_list:
             for t in module.get("topics", []):
